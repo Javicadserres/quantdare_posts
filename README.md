@@ -1,3 +1,3 @@
-# quantdare_posts
+# Quantdare Posts
 
 Financial and mathematical posts and findings.
