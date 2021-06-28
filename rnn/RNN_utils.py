@@ -200,13 +200,6 @@ class SGD:
             new_weights.append(weight)
 
         return new_weights, velocities
-        # new_weights = []
-
-        # for weight, gradient in zip(weights, gradients):
-        #     weight -= self.lr * gradient
-        #     new_weights.append(weight)
-
-        # return new_weights, 1
 
     def _update_velocities(self, gradients, beta, velocities):
         """
@@ -224,6 +217,22 @@ class SGD:
 
 
 def one_hot_encoding(input, size):
+    """
+    Do one hot encoding for a given input and size.
+    
+    Parameters
+    ----------
+    input : list
+        list containing the numbers to make the 
+        one hot encoding
+    size : int
+        Maximum size of the one hot encoding.
+        
+    Returns
+    -------
+    output : list
+        List with the one hot encoding arrays.
+    """
     output = []
 
     for index, num in enumerate(input):
