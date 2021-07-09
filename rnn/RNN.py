@@ -1,8 +1,9 @@
 import numpy as np
-from RNN_utils import Tanh, Softmax, CrossEntropyLoss
+from DNet.layers import LinearLayer, Tanh, Base
 
 
-class RNNModel:
+
+class RNNCell(Base):
     """
     Recurrent neural network implementation.
     """
@@ -24,15 +25,15 @@ class RNNModel:
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
 
-        params = self._initialize_parameters(
-                input_dim, output_dim, hidden_dim
-        )
-        self.Wya, self.Wax, self.Waa, self.by, self.b = params
-        self.softmax = Softmax()
-        self.oparams = None
+        self.lineal_h = LinearLayer(input_dim + hidden_dim, hidden_dim)
+        self.lineal_o = LinearLayer(hidden_dim, output_dim)
+        self.tanh = Tanh()
+
+        self.parameters_o = [0, 0]
+        self.parameters_h = [0, 0]
 
 
-    def forward(self, input_X):
+    def forward(self, input_X, hidden=None):
         """
         Computes the forward propagation of the RNN.
 
@@ -48,92 +49,48 @@ class RNNModel:
             List containing all the preditions for each input of the
             input_X list.
         """
-        self.input_X = input_X
+        if hidden is None: hidden = np.zeros((self.hidden_dim, 1))
 
-        self.layers_tanh = [Tanh() for x in input_X]
-        hidden = np.zeros((self.hidden_dim , 1))
-        
-        self.hidden_list = [hidden]
-        self.y_preds = []
+        # combine the input with the hidden state
+        combined = np.concatenate((input_X, hidden), axis=1)
+        input_hidden = self.lineal_h.forward(combined)
+        # hidden state
+        hidden = self.tanh.forward(input_hidden)
+        # output
+        output = self.lineal_o.forward(hidden)
 
-        for input_x, layer_tanh in zip(input_X, self.layers_tanh):
-            input_tanh = np.dot(self.Wax, input_x) + np.dot(self.Waa, hidden) + self.b
-            hidden = layer_tanh.forward(input_tanh)
-            self.hidden_list.append(hidden)
-
-            input_softmax = np.dot(self.Wya, hidden) + self.by
-            y_pred = self.softmax.forward(input_softmax)
-            self.y_preds.append(y_pred)
-
-        return self.y_preds
+        return output, hidden    
 
 
-    def loss(self, Y):
-        """
-        Computes the Cross Entropy Loss for the predicted values.
-
-        Parameters
-        ----------
-        Y : numpy.array or list
-            List containing the real labels to predict.
-
-        Returns
-        -------
-        cost : int
-            Cost of the given model.
-        """
-        self.Y = Y
-        self.layers_loss = [CrossEntropyLoss() for y in self.Y]
-        cost = 0
-        
-        for y_pred, y, layer in zip(self.y_preds, self.Y, self.layers_loss):
-            cost += layer.forward(y_pred, y)
-        
-        return cost
-    
-
-    def backward(self):  
+    def backward(self, dZ, d_hidden=0):  
         """
         Computes the backward propagation of the model.
 
-        Defines and updates the gradients of the parameters to used
-        in order to actulized the weights.
-        """
-        gradients = self._define_gradients()
-        self.dWax, self.dWaa, self.dWya, self.db, self.dby, dhidden_next = gradients
-
-        for index, layer_loss in reversed(list(enumerate(self.layers_loss))):
-            dy = layer_loss.backward()
-
-            # hidden actual
-            hidden = self.hidden_list[index + 1]
-            hidden_prev = self.hidden_list[index]
-
-            # gradients y
-            self.dWya += np.dot(dy, hidden.T)
-            self.dby += dy
-            dhidden = np.dot(self.Wya.T, dy) + dhidden_next
-    
-            # gradients a
-            dtanh = self.layers_tanh[index].backward(dhidden)
-            self.db += dtanh
-            self.dWax += np.dot(dtanh, self.input_X[index].T)
-            self.dWaa += np.dot(dtanh, hidden_prev.T)
-            dhidden_next = np.dot(self.Waa.T, dtanh)
-
-
-    def clip(self, clip_value):
-        """
-        Clips the gradients in order to avoisd the problem of 
-        exploding gradient.
-
         Parameters
         ----------
-        clip_value : int
-            Number that will be used to clip the gradients.
-        """
-        for gradient in [self.dWax, self.dWaa, self.dWya, self.db, self.dby]:
-            np.clip(gradient, -clip_value, clip_value, out=gradient)
+        dZ : numpy.array
+            The gradient of the of the output with respect to the
+            next layer.
+
+        Returns
+        -------
+        d_output : numpy.array
+            The gradient of the input with respect to the current 
+            layer.
+        d_hidden : numpy.array
+            The gradient of the input with respect to the current 
+            layer.
+        """  
+        # derivative of the output
+        d_output = self.lineal_o.backward(dZ) + d_hidden
+        # derivative of the hyperbolic tangent
+        d_tanh = self.tanh.backward(d_output)
+        # derivative of the hidden state
+        d_hidden = self.lineal_h.backward(d_tanh)
+        # update parameters
+        self._update_parameters()
+
+        return d_output, d_hidden
 
 
     def optimize(self, method):
@@ -146,102 +103,107 @@ class RNNModel:
         method: Class
             Method to use in order to optimize the parameters.
         """
-        weights = [self.Wya, self.Wax, self.Waa, self.by, self.b]
-        gradients = [self.dWya, self.dWax, self.dWaa, self.dby, self.db]
+        for layer in [self.lineal_o, self.tanh, self.lineal_h]:
+            layer.optimize(method)
 
-        weights, self.oparams = method.optim(weights, gradients, self.oparams)
-        self.Wya, self.Wax, self.Waa, self.by, self.b = weights
-        
-    
-    def generate_names(
-        self, index_to_character
-    ):
+    def _update_parameters(self):
         """
-        Generates a random names with the pretrained RNN.
-
-        Parameters
-        ----------
-        index_to_character : dict
-            Dictionary that relates the indexes with the letters
-            to be used in order to create the name.
-
-        Returns
-        -------
-        name : list
-            List containing the final name predicted.
+        Updates parameters
         """
-        letter = None
-        indexes = list(index_to_character.keys())
-
-        letter_x = np.zeros((self.input_dim, 1))
-        name = []
-
-        # similar to forward propagation.
-        layer_tanh = Tanh()
-        hidden = np.zeros((self.hidden_dim , 1))
-
-        while letter != '\n' and len(name)<15:
-
-            input_tanh = np.dot(self.Wax, letter_x) + np.dot(self.Waa, hidden) + self.b
-            hidden = layer_tanh.forward(input_tanh)
-
-            input_softmax = np.dot(self.Wya, hidden) + self.by
-            y_pred = self.softmax.forward(input_softmax)
-
-            index = np.random.choice(indexes, p=y_pred.ravel())
-            letter = index_to_character[index]
-
-            name.append(letter)
-
-            letter_x = np.zeros((self.input_dim, 1))
-            letter_x[index] = 1
-
-        return "".join(name)
+        # actualize parameters
+        [self.lineal_o.dW, self.lineal_o.db] += self.parameters_o
+        [self.lineal_h.dW, self.lineal_h.db] += self.parameters_h
+        # retrieve old parameters
+        self.parameters_o = [self.lineal_o.dW, self.lineal_o.db]
+        self.parameters_h = [self.lineal_h.dW, self.lineal_h.db]
 
 
-    def _initialize_parameters(self, input_dim, output_dim, hidden_dim):
+class RNN(Base):
+    """
+    """
+    def __init__(self, input_dim, output_dim, hidden_dim):
         """
-        Initialize the parameters randomly.
+        Initialize the parameters with the input, output and hidden
+        dimensions. 
 
         Parameters
         ----------
         input_dim : int
-            Dimension of the input
+            Dimension of the input. 
         output_dim : int
-            Dimension of the ouput
+            Dimension of the output.
         hidden_dim : int
+            Number of units in the RNN cell.
+        """
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dim = hidden_dim
+
+        self.rnn_cell = RNNCell(input_dim, output_dim, hidden_dim)
+
+
+    def forward(self, input_X, hidden=None):
+        """
+        Computes the forward propagation of the RNN.
+
+        Parameters
+        ----------
+        input_X : numpy.array or list
+            List containing all the inputs that will be used to 
+            propagete along the RNN cell.
 
         Returns
         -------
-        weights_y : numpy.array
-        weights_ax : numpy.array
-        weights_aa : numpy.array
-        bias_y : numpy.array
-        bias : numpy.array
+        y_preds : list
+            List containing all the preditions for each input of the
+            input_X list.
         """
-        den = np.sqrt(hidden_dim)
+        if hidden is None: hidden = np.zeros((self.hidden_dim, 1))
 
-        weights_y = np.random.randn(output_dim, hidden_dim) / den
-        bias_y = np.zeros((output_dim, 1))
+        outputs = []
 
-        weights_ax = np.random.randn(hidden_dim, input_dim) / den
-        weights_aa = np.random.randn(hidden_dim, hidden_dim) / den
-        bias = np.zeros((hidden_dim, 1))
+        for input in input_X:
+            output, hidden = self.rnn_cell.forward(input, hidden)
+            outputs.append(output.tolist())
 
-        return weights_y, weights_ax, weights_aa, bias_y, bias
+        return np.array(output), hidden    
 
 
-    def _define_gradients(self):
+    def backward(self, dZ, d_hidden=0):  
         """
-        Defines the gradients of the model.
+        Computes the backward propagation of the model.
+
+        Parameters
+        ----------
+        dZ : numpy.array
+            The gradient of the of the output with respect to the
+            next layer.
+
+        Returns
+        -------
+        d_output : numpy.array
+            The gradient of the input with respect to the current 
+            layer.
+        d_hidden : numpy.array
+            The gradient of the input with respect to the current 
+            layer.
         """
-        dWax = np.zeros_like(self.Wax)
-        dWaa = np.zeros_like(self.Waa)
-        dWya = np.zeros_like(self.Wya)
+        d_hidden = 0
 
-        db = np.zeros_like(self.b)
-        dby = np.zeros_like(self.by)
+        for dz in dZ:
+            d_output, d_hidden = self.rnn_cell.backward(dz, d_hidden)
 
-        da_next = np.zeros_like(self.hidden_list[0])
+        return d_output, d_hidden
 
-        return dWax, dWaa, dWya, db, dby, da_next
+
+    def optimize(self, method):
+        """
+        Updates the parameters of the model using a given optimize 
+        method.
+
+        Parameters
+        ----------
+        method: Class
+            Method to use in order to optimize the parameters.
+        """
+        self.rnn_cell.optimize(method)
