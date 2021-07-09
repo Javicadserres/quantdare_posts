@@ -241,6 +241,6 @@ def one_hot_encoding(input, size):
         if (num != None):
             one_hot[num] = 1
     
-        output.append(one_hot)
+        output.append(one_hot.tolist())
 
-    return output
+    return np.array(output)
