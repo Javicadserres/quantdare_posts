@@ -15,3 +15,8 @@ Run the code by clicking the next binder:
 In this [post](https://quantdare.com/implementing-a-rnn-with-numpy/) we learn how to implement a Recurrent Neural Network from scratch using only numpy.
 
 Check [here](https://github.com/Javicadserres/quantdare_posts/tree/master/rnn) too see how it was implemented and a usage example.
+
+### Measuring uncertainty with RNN
+In this [post](https://quantdare.com/measuring-uncertainty-in-time-series-data/) we learn how to make probabilistic forecasting with quantile predictions using the Smooth Pinball loss function in an LSTM with PyTorch.
+
+Check [here](https://github.com/Javicadserres/quantdare_posts/tree/master/quantile-prediction) too see how it was implemented and a usage example.
